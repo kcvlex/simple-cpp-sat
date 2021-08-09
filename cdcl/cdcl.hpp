@@ -60,16 +60,18 @@ private:
 struct bounded_queue {
     bounded_queue(const int bound_);
 
-    void push(const std::uint64_t lbd);
+    void push(const std::uint64_t v);
     void pop();
     void clear();
-    bool is_full() const;
-    std::uint64_t get_bound() const;
-    std::uint64_t get_sum() const;
+    bool is_full() const noexcept;
+    std::uint64_t bound() const noexcept;
+    std::uint64_t sum() const noexcept;
+    std::uint64_t global_sum() const noexcept;
+    std::uint64_t global_size() const noexcept;
 
 private:
-    const int bound;
-    std::uint64_t sum;
+    const int bound_;
+    std::uint64_t sum_, g_sum_, g_size_;
     std::queue<std::uint64_t> que;
 };
 
@@ -85,13 +87,11 @@ private:
     Logger logger;
     Watcher watcher;
     VSIDS vsids;
-    bounded_queue bque;
+    bounded_queue lbd_que, conflict_que;
     ImplicationGraph igraph;
 
     struct global_data {
-        std::uint64_t conflicts;
         double K;
-        std::uint64_t lbd_sum;
         std::uint64_t removed;
     } g_data;
 

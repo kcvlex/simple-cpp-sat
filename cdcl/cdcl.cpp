@@ -162,18 +162,23 @@ std::vector<int> Watcher::get(const int idx) const {
 /* ========== bounded_queue ========== */
 
 bounded_queue::bounded_queue(const int bound_)
-    : bound(bound_), sum(0)
+    : bound_(bound_),
+      sum_(0),
+      g_sum_(0),
+      g_size_(0)
 {
 }
 
-void bounded_queue::push(const std::uint64_t lbd) {
-    que.push(lbd);
-    sum += lbd;
-    if (bound < int(que.size())) pop();
+void bounded_queue::push(const std::uint64_t v) {
+    que.push(v);
+    sum_ += v;
+    g_sum_ += v;
+    g_size_++;
+    if (bound_ < int(que.size())) pop();
 }
 
 void bounded_queue::pop() {
-    sum -= que.front();
+    sum_ -= que.front();
     que.pop();
 }
 
@@ -181,16 +186,24 @@ void bounded_queue::clear() {
     while (que.size()) que.pop();
 }
 
-bool bounded_queue::is_full() const {
-    return int(que.size()) == bound;
+bool bounded_queue::is_full() const noexcept {
+    return int(que.size()) == bound_;
 }
 
-std::uint64_t bounded_queue::get_sum() const {
-    return sum;
+std::uint64_t bounded_queue::sum() const noexcept {
+    return sum_;
 }
 
-std::uint64_t bounded_queue::get_bound() const {
-    return bound;
+std::uint64_t bounded_queue::bound() const noexcept {
+    return bound_;
+}
+
+std::uint64_t bounded_queue::global_sum() const noexcept {
+    return g_sum_;
+}
+
+std::uint64_t bounded_queue::global_size() const noexcept {
+    return g_size_;
 }
 
 
@@ -201,9 +214,10 @@ CDCL::CDCL(CNF *cnf_, Valuation *va_)
       va(va_),
       watcher(cnf),
       vsids(cnf->get_pnum(), 100, 100),
-      bque(50),
+      lbd_que(50),
+      conflict_que(50),
       igraph(cnf->get_pnum()),
-      g_data(global_data { 0, 0.8, 0, 0 }),
+      g_data(global_data { 0.8, 0 }),
       level(0)
 {
 }
@@ -387,6 +401,7 @@ std::optional<Valuation*> CDCL::solve_aux() {
             
             while (implied.size()) implied.pop();
 
+            const auto conflict_level = level;
             auto bj = learnt_clause((*opt)->raw());
             if (!bj.has_value()) return std::nullopt;
             auto [ clause, l ] = *bj;
@@ -396,11 +411,10 @@ std::optional<Valuation*> CDCL::solve_aux() {
 
             cnf->add(clause);
             vsids.vsi(clause);
-
+            conflict_que.push(conflict_level);
+            lbd_que.push(clause->get_LBD());
+            
             // restart or not
-            bque.push(clause->get_LBD());
-            g_data.conflicts++;
-            g_data.lbd_sum += clause->get_LBD();
             if (should_restart()) goto restart_l;
 
             rebuild_log(clause);
@@ -428,17 +442,27 @@ restart_l:
 }
 
 bool CDCL::should_restart() const {
-    if (!bque.is_full()) return false;
-    auto v1 = double(bque.get_sum());
-    v1 /= bque.get_bound();
-    v1 *= g_data.K;
-    auto v2 = double(g_data.lbd_sum) / g_data.conflicts;
-    return v1 > v2;
+    if (!lbd_que.is_full()) return false;
+
+    {
+        auto v1 = double(lbd_que.sum());
+        v1 /= lbd_que.bound();
+        v1 *= g_data.K;
+        auto v2 = double(lbd_que.global_sum()) / conflict_que.global_size();
+        if (v1 > v2) return true;
+    }
+
+    {
+        auto v1 = double(conflict_que.sum());
+        v1 /= conflict_que.bound();
+        auto v2 = double(conflict_que.global_sum()) / conflict_que.global_size();
+        return v1 > v2;
+    }
 }
 
 std::optional<Valuation*> CDCL::restart() {
     while (!logger.is_empty()) rollback();
-    bque.clear();
+    lbd_que.clear();
     return solve_aux();
 }
 
