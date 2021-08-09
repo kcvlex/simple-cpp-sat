@@ -430,10 +430,6 @@ std::optional<Valuation*> CDCL::solve_aux() {
                 // FIXME : index
             }
             */
-
-            continue;
-            // dump(clause);
-            // assert(assigned.find(std::abs(cp)) != assigned.end());
         }
     }
 
@@ -463,6 +459,7 @@ bool CDCL::should_restart() const {
 std::optional<Valuation*> CDCL::restart() {
     while (!logger.is_empty()) rollback();
     lbd_que.clear();
+    conflict_que.clear();
     return solve_aux();
 }
 
