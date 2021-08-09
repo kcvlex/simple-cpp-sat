@@ -40,6 +40,7 @@ struct Logger {
     assigned_log& top();
     bool is_empty() const;
     std::vector<assigned_log>& raw();
+    void clear();
     const std::vector<assigned_log>& raw() const;
 };
 
@@ -78,6 +79,7 @@ private:
 struct CDCL {
     CDCL() = delete;
     CDCL(CNF *cnf_, Valuation *va_);
+    ~CDCL();
 
     std::optional<Valuation*> solve();
 
@@ -115,6 +117,7 @@ private:
 
     bool preprocess();
     std::optional<Valuation*> solve_aux();
+    void check_sat();
 };
 
 }

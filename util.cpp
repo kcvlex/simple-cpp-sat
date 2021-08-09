@@ -1,14 +1,26 @@
 #include <iostream>
 #include <algorithm>
 #include "util.hpp"
+#include <sstream>
 
 std::tuple<CNF*, int, int> parse() {
     int hw;
-    char p_;
     std::string cnf_;
     int pn;
     int line;
-    std::cin >> p_ >> cnf_ >> pn >> line;
+    {
+        std::string s;
+        while (true) {
+            std::getline(std::cin, s);
+            std::stringstream ss;
+            ss << s;
+            char c;
+            ss >> c;
+            if (c == 'c') continue;
+            ss >> cnf_ >> pn >> line;
+            break;
+        }
+    }
     std::vector<raw_clause> ret;
     ret.reserve(line);
     for (int i = 0; i < line; i++) {

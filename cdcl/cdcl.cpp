@@ -6,6 +6,16 @@
 
 #define ALL(V) std::begin(V), std::end(V)
 
+// #define DEBUG
+
+#ifdef DEBUG
+#define ASSERT(X) assert(X)
+#else
+#define ASSERT(X) 42
+#endif
+
+#define CHECK
+
 namespace cdcl {
 
 void dump_watch(Clause *c) {
@@ -28,7 +38,7 @@ void resolution(raw_clause &r1, const raw_clause &r2, const int p) {
     r1.erase(std::unique(ALL(r1)), std::end(r1));
     for (auto e : { p, -p }) {
         auto ite = std::lower_bound(ALL(r1), e);
-        assert(ite != std::end(r1) && *ite == e);
+        ASSERT(ite != std::end(r1) && *ite == e);
         r1.erase(ite);
     }
 }
@@ -108,6 +118,10 @@ const std::vector<assigned_log>& Logger::raw() const {
     return log_stk;
 }
 
+void Logger::clear() {
+    log_stk.clear();
+}
+
 std::vector<assigned_log>& Logger::raw() {
     return log_stk;
 }
@@ -131,7 +145,10 @@ Watcher::Watcher(CNF *cnf)
 void Watcher::add_watch(Clause *c) {
     if (c->state != ClauseState::Unknown) return;
     auto [ fst, last ] = c->get_watch();
-    for (const auto idx : { fst, last - 1 }) {
+    for (int i = 0; i < 2; i++) {
+        if (i == 0 && fst == last) continue;
+        if (i == 1 && last == 0) continue;
+        const auto idx = (i == 0 ? fst : last - 1);
         const int p = std::abs(c->get(idx));
         auto &v = watches[p];
         const auto cnf_idx = c->cnf_idx;
@@ -143,7 +160,10 @@ void Watcher::add_watch(Clause *c) {
 
 void Watcher::remove_watch(Clause *c) {
     auto [ fst, last ] = c->get_watch();
-    for (const auto idx : { fst, last - 1 }) {
+    for (int i = 0; i < 2; i++) {
+        if (i == 0 && fst == last) continue;
+        if (i == 1 && last == 0) continue;
+        const auto idx = (i == 0 ? fst : last - 1);
         const int p = std::abs(c->get(idx));
         auto &v = watches[p];
         const auto cnf_idx = c->cnf_idx;
@@ -222,7 +242,11 @@ CDCL::CDCL(CNF *cnf_, Valuation *va_)
 {
 }
 
+CDCL::~CDCL() {
+}
+
 void CDCL::decision(const int p, const PValue v) {
+    ASSERT(va->get_value(p) == PValue::BOTTOM);
     level++;
     va->assign(p, v, level);
     vsids.assign(p);
@@ -231,20 +255,19 @@ void CDCL::decision(const int p, const PValue v) {
 }
 
 void CDCL::imply(Clause *c, const int p) {
-    assert(c->state == ClauseState::Unit);
+    ASSERT(c->state == ClauseState::Unit);
+    ASSERT(va->get_value(p) == PValue::BOTTOM);
     va->imply(p, level);
     vsids.assign(p);
     igraph.imply(c, p);
     logger.assign(level, p, c);
     update_clause(c);
-    assert(c->state == ClauseState::SAT);
+    ASSERT(c->state == ClauseState::SAT);
 }
 
 void CDCL::rollback() {
-    assert(!logger.is_empty());
+    ASSERT(!logger.is_empty());
     auto log = logger.pop();
-    if (log.dl == 0) return;
-    assert(level == log.dl);
     va->reset(log.p);
     vsids.rollback(log.p);
     if (log.clause == nullptr) {
@@ -264,12 +287,11 @@ void CDCL::rollback() {
 }
 
 std::optional<backjump_type> CDCL::learnt_clause(raw_clause c) {
-    // std::cout<<count_level(c,va,level)<<std::endl;
     if (!is_first_uip(c, va, level)) {
         for (auto ite = std::crbegin(logger.raw()); ite != std::crend(logger.raw()); ite++) {
             const auto unit = ite->clause;
             const auto p = ite->p;
-            assert(unit != nullptr);
+            ASSERT(unit != nullptr);
             if (!has_var(c, -p)) continue;
             resolution(c, unit->raw(), p);
             if (is_first_uip(c, va, level)) break;
@@ -277,7 +299,7 @@ std::optional<backjump_type> CDCL::learnt_clause(raw_clause c) {
         }
     }
 
-    assert(is_first_uip(c, va, level));
+    ASSERT(is_first_uip(c, va, level));
     // igraph.recursive_minimize(c);
     igraph.local_minimize(c, va);
     int l = find_max_level(c, va, level);
@@ -287,10 +309,22 @@ std::optional<backjump_type> CDCL::learnt_clause(raw_clause c) {
 
 bool CDCL::backjump(const backjump_type bj) {
     auto [ clause, l ] = bj;
-    if (l <= 0) return false;
+    auto bound = std::max(l, 0);
     while (true) {
+        if (level == bound) break;
         rollback();
-        if (level == l) break;
+    }
+    if (l == -1) {
+        ASSERT(logger.is_empty());
+        ASSERT(clause->size() == 1);
+        const auto p = clause->get(0);
+        ASSERT(va->get_value(p) == PValue::BOTTOM);
+        const auto v = (p < 0 ? PValue::FALSE : PValue::TRUE); 
+        va->assign(p, v, level);
+        vsids.assign(p);
+        // logger.assign(0, p, clause);
+        // igraph.imply(clause, p);
+        return false;
     }
     return true;
 }
@@ -345,9 +379,9 @@ void CDCL::rebuild_log(Clause *c) {
         auto [ fst, last ] = c->get_watch();
         clause_log clog { fst, last, c->state, c, v[fst], v[last - 1]  };
         c->update(&tmp, ite->dl);
+        if (ite->dl == 0) continue;
         ite->add_clause_log(clog, c);
     }
-    watcher.warr.emplace_back(0, 0);
 }
 
 bool CDCL::preprocess() {
@@ -356,14 +390,36 @@ bool CDCL::preprocess() {
     for (int i = 0; i < cnf->size(); i++) {
         auto c = cnf->get(i);
         if (c->size() != 1) continue;
-        const int p = c->get(0);
-        const auto v = (p < 0 ? PValue::FALSE : PValue::TRUE);
-        if (int(va->get_value(p)) * int(v) == -1) return false;
-        va->assign(p, v, level);
-        vsids.assign(p);
+        implied.push(c);
     }
-    logger.assign(level, 0, nullptr);
+
+    while (implied.size()) {
+        do {
+            auto c = implied.front();
+            implied.pop();
+            update_clause(c);
+            if (c->state == ClauseState::UNSAT) return false;
+            if (c->state == ClauseState::SAT) break;
+            ASSERT(c->state == ClauseState::Unit);
+            auto p = *(c->unit());
+            imply(c, p);
+            // if (bcp(p).has_value()) return false;
+        } while (false);
+    }
+
+    logger.clear();
+    // logger.assign(level, 0, nullptr);
     return true;
+}
+
+void CDCL::check_sat() {
+    for (int i = 0; i < cnf->size(); i++) {
+        auto c = cnf->get(i);
+        c->rollback(0, c->size(), ClauseState::Unknown);
+        c->update(va, level);
+        ASSERT(c->state == ClauseState::SAT);
+    }
+    for (int i = 1; i <= va->get_pnum(); i++) ASSERT(int(va->get_value(i)));
 }
 
 std::optional<Valuation*> CDCL::solve_aux() {
@@ -371,11 +427,9 @@ std::optional<Valuation*> CDCL::solve_aux() {
         auto pick = vsids.pickup();
 
         if (!pick.has_value()) {
-            for (int i = 0; i < cnf->size(); i++) {
-                cnf->get(i)->update(va, level);
-                assert(cnf->get(i)->state == ClauseState::SAT);
-            }
-            for (int i = 1; i <= va->get_pnum(); i++) assert(int(va->get_value(i)));
+#ifdef CHECK
+            check_sat();
+#endif
             return va;
         }
 
@@ -405,11 +459,15 @@ std::optional<Valuation*> CDCL::solve_aux() {
             auto bj = learnt_clause((*opt)->raw());
             if (!bj.has_value()) return std::nullopt;
             auto [ clause, l ] = *bj;
-            if (l == 0) return std::nullopt;
+            // if (l == 0) return std::nullopt;
 
-            if (!backjump(*bj)) return std::nullopt;
+            if (!backjump(*bj)) {
+                delete clause;
+                continue;
+            }
 
             cnf->add(clause);
+            watcher.warr.emplace_back(0, 0);
             vsids.vsi(clause);
             conflict_que.push(conflict_level);
             lbd_que.push(clause->get_LBD());
@@ -419,8 +477,8 @@ std::optional<Valuation*> CDCL::solve_aux() {
 
             rebuild_log(clause);
             implied.push(clause);
-            assert(clause->state == ClauseState::Unit);
-            assert(implied.size() == 1);
+            ASSERT(clause->state == ClauseState::Unit);
+            ASSERT(implied.size() == 1);
             
             // remove or not
             /*
@@ -457,7 +515,10 @@ bool CDCL::should_restart() const {
 }
 
 std::optional<Valuation*> CDCL::restart() {
-    while (!logger.is_empty()) rollback();
+    while (level) {
+        ASSERT(!logger.is_empty());
+        rollback();
+    }
     lbd_que.clear();
     conflict_que.clear();
     return solve_aux();

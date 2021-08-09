@@ -1,16 +1,7 @@
 CXX = g++
 CXX_FLAGS = -g -std=c++17 -O2 
-CC = cc
-SOURCES = cnf.cpp util.cpp dpll/dpll.cpp cdcl/cdcl.cpp cdcl/vsids.cpp cdcl/
-
-
-%.d: %.cpp
-	${CC} -MM ${CXX_FLAGS} $< | sed -e "s/\(.*.o\):/\1 $@:/g" > $@
-
-%.o: %.d %.cpp
-	${CXX} ${CXX_FLAGS} -c $(shell echo $< | sed -e "s/\(.*\).d/\1.cpp/g") -o $@
-
-# CXX_FLAGS = -g -std=c++17 -pg -g
+# CXX_FLAGS = -g -std=c++17 --sanitize=address
+# CXX_FLAGS = -g -std=c++17 -pg
 
 .PHONY: all
 all: bin/main
