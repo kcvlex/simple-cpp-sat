@@ -1,6 +1,5 @@
 #pragma once
 
-#include <queue>
 #include <variant>
 #include <queue>
 #include "../cnf.hpp"
@@ -11,6 +10,7 @@ namespace cdcl {
 
 struct clause_log {
     int fst, last;
+    int dl;
     ClauseState state;
     Clause *ptr;
     int p0, p1;
@@ -20,20 +20,26 @@ struct assigned_log {
     int dl;
     int p;
     Clause *clause;
-    std::vector<clause_log> clogs;
+    vstack<int> clog;
 
     assigned_log(const int dl_,
                  const int p_,
                  Clause *clause_);
-    void add_clause_log(clause_log log, Clause *c);
 };
 
 using backjump_type = std::tuple<Clause*, int>;
 
 struct Logger {
     std::vector<assigned_log> log_stk;
+    std::vector<vstack<clause_log>> clogs;
+
+    Logger() = delete;
+    Logger(const int size);
 
     void assign(const int dl, const int p, Clause *c);
+    bool is_saved(const int dl, const Clause *c) const;
+    void add_clause_log(clause_log log);
+    void inc_clause();
 
     assigned_log pop();
     const assigned_log& top() const;
@@ -98,7 +104,7 @@ private:
     } g_data;
 
     int level;
-    std::queue<Clause*> implied;
+    vstack<Clause*> implied;
 
     void decision(const int p, const PValue v);
     void imply(Clause *c, const int p);

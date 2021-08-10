@@ -81,19 +81,29 @@ assigned_log::assigned_log(const int dl_,
 {
 }
 
-void assigned_log::add_clause_log(clause_log log, Clause *c) {
-    do {
-        auto [ fst, last ] = c->get_watch();
-        if (log.fst != fst) break;
-        if (log.last != last) break;
-        if (log.state != c->state) break;
-        return;
-    } while (false);
-    clogs.push_back(log);
+Logger::Logger(const int size)
+    : clogs(size)
+{
 }
 
 void Logger::assign(const int dl, const int p, Clause *c) {
     log_stk.emplace_back(dl, p, c);
+}
+
+bool Logger::is_saved(const int dl, const Clause *c) const {
+    const int idx = c->cnf_idx;
+    return clogs[idx].size() && clogs[idx].top().dl == dl;
+}
+
+void Logger::add_clause_log(clause_log log) {
+    if (log.dl == 0) return;
+    const int idx = log.ptr->cnf_idx;
+    log_stk[log.dl - 1].clog.push(idx);
+    clogs[idx].push(log);
+}
+
+void Logger::inc_clause() {
+    clogs.emplace_back();
 }
 
 assigned_log Logger::pop() {
@@ -232,6 +242,7 @@ std::uint64_t bounded_queue::global_size() const noexcept {
 CDCL::CDCL(CNF *cnf_, Valuation *va_)
     : cnf(cnf_),
       va(va_),
+      logger(cnf->size()),
       watcher(cnf),
       vsids(cnf->get_pnum(), 100, 100),
       lbd_que(50),
@@ -267,22 +278,27 @@ void CDCL::imply(Clause *c, const int p) {
 
 void CDCL::rollback() {
     ASSERT(!logger.is_empty());
-    auto log = logger.pop();
+    auto log = std::move(logger.pop());
     va->reset(log.p);
     vsids.rollback(log.p);
     if (log.clause == nullptr) {
         level--;
         igraph.reset_decision(log.p);
     } else {
+        // FIXME : tabun iranai
         igraph.reset_imply(log.clause, log.p);
     }
-    std::reverse(ALL(log.clogs));
-    for (auto cl : log.clogs) {
-        auto c = cl.ptr;
+
+    while (log.clog.size()) {
+        auto idx = log.clog.top();
+        log.clog.pop();
+        auto l = logger.clogs[idx].top();
+        logger.clogs[idx].pop();
+        auto c = l.ptr;
         watcher.remove_watch(c);
-        c->rollback(cl.fst, cl.last, cl.state);
+        c->rollback(l.fst, l.last, l.state);
         watcher.add_watch(c);
-        watcher.warr[c->cnf_idx] = std::make_pair(cl.p0, cl.p1);
+        watcher.warr[idx] = std::make_pair(l.p0, l.p1);
     }
 }
 
@@ -330,14 +346,21 @@ bool CDCL::backjump(const backjump_type bj) {
 }
 
 void CDCL::update_clause(Clause *c) {
-    auto [ fst, last ] = c->get_watch();
     const int idx = c->cnf_idx;
-    auto [ p0, p1 ] = watcher.warr[idx];
-    clause_log log { fst, last, c->state, c, p0, p1 };
-    watcher.remove_watch(c);
-    c->update(va, level);
-    watcher.add_watch(c);
-    logger.top().add_clause_log(log, c);
+    if (logger.is_saved(level, c)) {
+        watcher.remove_watch(c);
+        c->update(va, level);
+        watcher.add_watch(c);
+    } else {
+        auto [ fst, last ] = c->get_watch();
+        auto [ p0, p1 ] = watcher.warr[idx];
+        clause_log log { fst, last, level, c->state, c, p0, p1 };
+        logger.add_clause_log(log);
+        watcher.remove_watch(c);
+        c->update(va, level);
+        watcher.add_watch(c);
+    }
+
     if (c->state == ClauseState::Unknown) {
         auto [ fst, last ] = c->get_watch();
         const auto &v = c->raw();
@@ -354,9 +377,9 @@ std::optional<Clause*> CDCL::bcp(const int p) {
             match(p1, va->get_value(p1)))
         {
             auto [ fst, last ] = c->get_watch();
-            clause_log clog { fst, last, c->state, c, p0, p1 };
+            clause_log clog { fst, last, level, c->state, c, p0, p1 };
             c->state = ClauseState::SAT;
-            logger.top().add_clause_log(clog, c);
+            logger.add_clause_log(clog);
             watcher.remove_watch(c);
             continue;
         }
@@ -374,13 +397,11 @@ void CDCL::rebuild_log(Clause *c) {
     const auto &v = c->raw();
     const auto idx = c->cnf_idx;
     Valuation tmp(va->get_pnum());
-    for (auto ite = logger.raw().begin(); ite != logger.raw().end(); ite++) {
-        tmp.assign(ite->p, va->get_value(ite->p), ite->dl);
+    for (int dl = 1; dl <= level; dl++) {
         auto [ fst, last ] = c->get_watch();
-        clause_log clog { fst, last, c->state, c, v[fst], v[last - 1]  };
-        c->update(&tmp, ite->dl);
-        if (ite->dl == 0) continue;
-        ite->add_clause_log(clog, c);
+        clause_log log { fst, last, dl, c->state, c, v[fst], v[last - 1]  };
+        c->update(va, dl);
+        logger.add_clause_log(log);
     }
 }
 
@@ -395,7 +416,7 @@ bool CDCL::preprocess() {
 
     while (implied.size()) {
         do {
-            auto c = implied.front();
+            auto c = implied.top();
             implied.pop();
             update_clause(c);
             if (c->state == ClauseState::UNSAT) return false;
@@ -441,7 +462,7 @@ std::optional<Valuation*> CDCL::solve_aux() {
                     decision(p, va->get_cache(p));
                     return bcp(p);
                 }
-                auto c = implied.front();
+                auto c = implied.top();
                 implied.pop();
                 c->recalc_LBD(va);
                 update_clause(c);
@@ -468,6 +489,7 @@ std::optional<Valuation*> CDCL::solve_aux() {
 
             cnf->add(clause);
             watcher.warr.emplace_back(0, 0);
+            logger.inc_clause();
             vsids.vsi(clause);
             conflict_que.push(conflict_level);
             lbd_que.push(clause->get_LBD());
