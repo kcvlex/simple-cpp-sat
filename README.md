@@ -16,7 +16,6 @@ Following algorithms are used.
 
 ```
 $ cd simple-cpp-sat
-$ mkdir bin
 $ make
 ```
 
@@ -26,13 +25,13 @@ $ make
 ### DPLL
 
 ```
-$ ./bin/main -m dpll < expr.cnf
+$ ./bin/release/main -m dpll < expr.cnf
 ```
 
 ### CDCL
 
 ```
-$ ./bin/main -m cdcl < expr.cnf
+$ ./bin/release/main -m cdcl < expr.cnf
 ```
 
 Input should be in DIMACS CNF format.

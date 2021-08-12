@@ -1,51 +1,64 @@
 CXX = g++
-CXX_FLAGS = -g -std=c++17 -O2 
-# CXX_FLAGS = -g -std=c++17 --sanitize=address
-# CXX_FLAGS = -g -std=c++17 -pg
+CXX_FLAGS = -std=c++17
 
-.PHONY: all
-all: bin/main
+all: release debug
 
-.PHONY: dpll
-dpll: bin/libdpll.a
+directories: bin bin/release bin/debug
 
-.PHONY: cdcl
-cdcl: bin/libcdcl.a
+bin:
+	mkdir -p bin
 
+bin/release:
+	mkdir -p bin/release
+
+bin/debug:
+	mkdir -p bin/debug
+
+release: CXX_FLAGS += -O2
+release: bin/release/main
+
+debug: CXX_FLAGS += -g -pg -Og
+debug: bin/debug/main
+
+define RULES =
 
 # COMMON
-bin/cnf.o: cnf.cpp cnf.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/cnf.o: cnf.cpp cnf.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
-bin/util.o: util.cpp util.hpp cnf.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/util.o: util.cpp util.hpp cnf.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
 # DPLL
-bin/dpll.o: dpll/dpll.cpp dpll/dpll.hpp cnf.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/dpll.o: dpll/dpll.cpp dpll/dpll.hpp cnf.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
-bin/libdpll.a: bin/cnf.o bin/dpll.o
-	ar -rv $@ $^
+$(1)/libdpll.a: $(1)/cnf.o $(1)/dpll.o
+	ar -rv $$@ $$^
 
 # CDCL
-bin/vsids.o: cdcl/vsids.cpp cdcl/vsids.hpp cnf.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/vsids.o: cdcl/vsids.cpp cdcl/vsids.hpp cnf.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
-bin/graph.o: cdcl/graph.cpp cdcl/graph.hpp cnf.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/graph.o: cdcl/graph.cpp cdcl/graph.hpp cnf.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
-bin/cdcl.o: cdcl/cdcl.cpp cnf.hpp cdcl/vsids.hpp cdcl/graph.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/cdcl.o: cdcl/cdcl.cpp cnf.hpp cdcl/vsids.hpp cdcl/graph.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
-bin/libcdcl.a: bin/cnf.o bin/cdcl.o bin/vsids.o bin/graph.o
-	ar -rv $@ $^
+$(1)/libcdcl.a: $(1)/cnf.o $(1)/cdcl.o $(1)/vsids.o $(1)/graph.o
+	ar -rv $$@ $$^
 
 # MAIN
-bin/main.o: main.cpp cnf.hpp util.hpp cdcl/cdcl.hpp dpll/dpll.hpp
-	g++ ${CXX_FLAGS} -c $< -o $@
+$(1)/main.o: main.cpp cnf.hpp util.hpp cdcl/cdcl.hpp dpll/dpll.hpp directories
+	g++ $${CXX_FLAGS} -c $$< -o $$@
 
-bin/main: bin/main.o bin/libdpll.a bin/libcdcl.a bin/util.o
-	g++ ${CXX_FLAGS} $^ -o $@
+$(1)/main: $(1)/main.o $(1)/libcdcl.a $(1)/util.o $(1)/libdpll.a
+	g++ $${CXX_FLAGS} $$^ -o $$@
+endef
+
+$(eval $(call RULES,bin/release))
+$(eval $(call RULES,bin/debug))
 
 clean:
-	rm -f bin/*
+	rm -f bin/{release,debug}/*
