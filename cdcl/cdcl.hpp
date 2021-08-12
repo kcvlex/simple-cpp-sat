@@ -12,19 +12,15 @@ struct clause_log {
     int fst, last;
     int dl;
     ClauseState state;
-    Clause *ptr;
     int p0, p1;
 };
 
 struct assigned_log {
-    int dl;
-    int p;
-    Clause *clause;
+    int dl, p;
+    std::vector<std::pair<int, Clause*>> imply;
     vstack<int> clog;
 
-    assigned_log(const int dl_,
-                 const int p_,
-                 Clause *clause_);
+    assigned_log(const int dl_, const int p_);
 };
 
 using backjump_type = std::tuple<Clause*, int>;
@@ -36,9 +32,10 @@ struct Logger {
     Logger() = delete;
     Logger(const int size);
 
-    void assign(const int dl, const int p, Clause *c);
+    void assign(const int dl, const int p);
+    void imply(const int p, Clause *c);
     bool is_saved(const int dl, const Clause *c) const;
-    void add_clause_log(clause_log log);
+    void add_clause_log(const int idx, clause_log log);
     void inc_clause();
 
     assigned_log pop();
